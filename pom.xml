@@ -34,6 +34,7 @@
     </properties>
 
     <build>
+        <finalName>hello-world-project</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

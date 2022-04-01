@@ -1,4 +1,27 @@
 image: maven:3-jdk-11
 
-build:
-  script: "mvn install -B"
+stages:
+  - package
+  - containerization
+
+maven:
+  stage: package
+  script:
+    - mvn clean package
+  artifacts:
+    paths:
+      - target/*.jar
+
+dockerize:
+  stage: containerization
+  image: docker:19.03.12
+  services:
+    - docker:19.03.12-dind
+  before_script:
+    - docker login -u "$DOCKER_USERNAME" -p "$DOCKER_ACCESS_TOKEN"
+    - docker info
+  script: 
+    - docker build -t yuanxin98/hello-world .
+    - docker push yuanxin98/hello-world
+  dependencies:
+    - maven
