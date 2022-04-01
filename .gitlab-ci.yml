@@ -1,8 +1,18 @@
 image: maven:3-jdk-11
 
 stages:
+  - build
   - package
+  - test
+  - uat
   - containerization
+  - deploy_services
+  - deploy_app
+
+build:
+  stage: build
+  script:
+    - mvn compile
 
 maven:
   stage: package
@@ -11,6 +21,36 @@ maven:
   artifacts:
     paths:
       - target/*.jar
+
+test:
+  stage: test
+  script:
+    - mvn clean test
+
+include:
+  - template: Auto-DevOps.gitlab-ci.yml
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
+
+sast:
+  before_script:
+      - echo "this is in the file" > test.txt
+  artifacts:
+    reports:
+      sast: gl-sast-report.json
+    paths: [gl-sast-report.json, test.txt]
+
+send-reports:
+  stage: uat
+  dependencies:
+    - sast
+  script:
+    - echo "in send-reports job"
+    - ls
+  artifacts:
+      reports:
+          sast: gl-sast-report.json
 
 dockerize:
   stage: containerization
@@ -25,3 +65,32 @@ dockerize:
     - docker push yuanxin98/hello-world
   dependencies:
     - maven
+
+DeployServices:
+  image: matshareyourscript/aws-helm-kubectl
+  stage: deploy_services
+  before_script:
+    - export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+    - export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+  script:
+    - cd .kubernetes
+    - kubectl --kubeconfig ${KUBECONFIG} apply -f services.yaml
+
+DeployApp:
+  image: matshareyourscript/aws-helm-kubectl
+  stage: deploy_app
+  before_script:
+    - export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+    - export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+  script:
+    - cd .kubernetes
+    - kubectl --kubeconfig ${KUBECONFIG} apply -f deployment.yaml
+    - kubectl get deployments hello-world-app
+    - kubectl get replicasets
+    - kubectl describe replicasets
+    - kubectl get services hello-world-service
+    - kubectl describe services hello-world-service
+    - kubectl get pods --output=wide
+    - kubectl --kubeconfig ${KUBECONFIG} rollout status deployment/hello-world-app
