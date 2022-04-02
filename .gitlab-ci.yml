@@ -1,26 +1,31 @@
 image: maven:3-jdk-11
 
 stages:
-  # - build
-  # - package
+  - build
+  - package
   - test
-  # - uat
-  # - containerization
-  # - deploy_services
-  # - deploy_app
+  - uat
+  - containerization
+  - deploy_services
+  - deploy_app
 
-# build:
-#   stage: build
-#   script:
-#     - mvn compile
+build:
+  stage: build
+  script:
+    - mvn compile
 
-# maven:
-#   stage: package
-#   script:
-#     - mvn clean package
-#   artifacts:
-#     paths:
-#       - target/*.jar
+maven:
+  stage: package
+  script:
+    - mvn clean package
+  artifacts:
+    paths:
+      - target/*.jar
+
+test:
+  stage: test
+  script:
+    - mvn clean test
 
 include:
   - template: Auto-DevOps.gitlab-ci.yml
@@ -28,73 +33,64 @@ include:
 include:
   - template: Security/SAST.gitlab-ci.yml
 
-test:
-  stage: test
-  script:
-    - mvn clean test
-
 sast:
+  before_script:
+      - echo "this is in the file" > test.txt
   artifacts:
     reports:
       sast: gl-sast-report.json
-    paths: [gl-sast-report.json]
+    paths: [gl-sast-report.json, test.txt]
 
-sast-severity:
-  stage: test
-  needs: ["sast"]
+send-reports:
+  stage: uat
+  dependencies:
+    - sast
   script:
-    - jq '.vulnerabilities[] | .severity' gl-sast-report.json | grep -e 'Critical' -e 'High' && exit 1;
+    - echo "in send-reports job"
+    - ls
+  artifacts:
+      reports:
+          sast: gl-sast-report.json
 
-# send-reports:
-#   stage: uat
-#   dependencies:
-#     - sast
-#   script:
-#     - echo "in send-reports job"
-#     - ls
-#   artifacts:
-#       reports:
-#           sast: gl-sast-report.json
+dockerize:
+  stage: containerization
+  image: docker:19.03.12
+  services:
+    - docker:19.03.12-dind
+  before_script:
+    - docker login -u "$DOCKER_USERNAME" -p "$DOCKER_ACCESS_TOKEN"
+    - docker info
+  script: 
+    - docker build -t yuanxin98/hello-world .
+    - docker push yuanxin98/hello-world
+  dependencies:
+    - maven
 
-# dockerize:
-#   stage: containerization
-#   image: docker:19.03.12
-#   services:
-#     - docker:19.03.12-dind
-#   before_script:
-#     - docker login -u "$DOCKER_USERNAME" -p "$DOCKER_ACCESS_TOKEN"
-#     - docker info
-#   script: 
-#     - docker build -t yuanxin98/hello-world .
-#     - docker push yuanxin98/hello-world
-#   dependencies:
-#     - maven
+DeployServices:
+  image: matshareyourscript/aws-helm-kubectl
+  stage: deploy_services
+  before_script:
+    - export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+    - export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+  script:
+    - cd .kubernetes
+    - kubectl --kubeconfig ${KUBECONFIG} apply -f services.yaml
 
-# DeployServices:
-#   image: matshareyourscript/aws-helm-kubectl
-#   stage: deploy_services
-#   before_script:
-#     - export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-#     - export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-#     - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
-#   script:
-#     - cd .kubernetes
-#     - kubectl --kubeconfig ${KUBECONFIG} apply -f services.yaml
-
-# DeployApp:
-#   image: matshareyourscript/aws-helm-kubectl
-#   stage: deploy_app
-#   before_script:
-#     - export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
-#     - export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
-#     - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
-#   script:
-#     - cd .kubernetes
-#     - kubectl --kubeconfig ${KUBECONFIG} apply -f deployment.yaml
-#     - kubectl get deployments hello-world-app
-#     - kubectl get replicasets
-#     - kubectl describe replicasets
-#     - kubectl get services hello-world-service
-#     - kubectl describe services hello-world-service
-#     - kubectl get pods --output=wide
-#     - kubectl --kubeconfig ${KUBECONFIG} rollout status deployment/hello-world-app
+DeployApp:
+  image: matshareyourscript/aws-helm-kubectl
+  stage: deploy_app
+  before_script:
+    - export AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+    - export AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+    - export AWS_DEFAULT_REGION=${AWS_DEFAULT_REGION}
+  script:
+    - cd .kubernetes
+    - kubectl --kubeconfig ${KUBECONFIG} apply -f deployment.yaml
+    - kubectl get deployments hello-world-app
+    - kubectl get replicasets
+    - kubectl describe replicasets
+    - kubectl get services hello-world-service
+    - kubectl describe services hello-world-service
+    - kubectl get pods --output=wide
+    - kubectl --kubeconfig ${KUBECONFIG} rollout status deployment/hello-world-app
