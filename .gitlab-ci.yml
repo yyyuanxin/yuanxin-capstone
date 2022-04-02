@@ -41,8 +41,7 @@ sast:
 
 sast-severity:
   stage: test
-  needs: 
-    - sast
+  needs: ["sast"]
   script:
     - jq '.vulnerabilities[] | .severity' gl-sast-report.json | grep -e 'Critical' -e 'High' && exit 1;
 
